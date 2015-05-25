@@ -55,6 +55,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="DesktopDuplicationException.cs" />
     <Compile Include="DesktopDuplicator.cs" />
     <Compile Include="DesktopFrame.cs" />
     <Compile Include="MovedRegion.cs" />
