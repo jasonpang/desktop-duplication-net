@@ -29,6 +29,32 @@ namespace DesktopDuplication
         private OutputDescription mOutputDesc;
         private OutputDuplication mDeskDupl;
 
+        private Texture2D desktopImageTexture = null;
+
+        private Bitmap finalImage1, finalImage2;
+        private bool isFinalImage1 = false;
+        private Bitmap FinalImage
+        {
+            get
+            {
+                return isFinalImage1 ? finalImage1 : finalImage2;
+            }
+            set
+            {
+                if (isFinalImage1)
+                {
+                    finalImage2 = value;
+                    if (finalImage1 != null) finalImage1.Dispose();
+                }
+                else
+                {
+                    finalImage1 = value;
+                    if (finalImage2 != null) finalImage2.Dispose();
+                }
+                isFinalImage1 = !isFinalImage1;
+            }
+        }
+
         /// <summary>
         /// Duplicates the output of the specified monitor.
         /// </summary>
@@ -97,7 +123,97 @@ namespace DesktopDuplication
         /// </summary>
         public void UpdateFrame()
         {
-            throw new NotImplementedException();
+            // Try to get the latest frame; this may timeout
+            bool retrievalTimedOut = RetrieveFrame();
+            if (retrievalTimedOut)
+                return;
+            try
+            {
+                ProcessFrame();
+                RetrieveFrameMetadata();
+            }
+            catch
+            {
+                ReleaseFrame();
+            }
+            try
+            {
+                ReleaseFrame();
+            }
+            catch { return; }
+        }
+
+        private bool RetrieveFrame()
+        {
+            if (desktopImageTexture == null)
+                desktopImageTexture = new Texture2D(mDevice, mTextureDesc);
+            SharpDX.DXGI.Resource desktopResource = null;
+            var frameInfo = new OutputDuplicateFrameInformation();
+            try
+            {
+                mDeskDupl.AcquireNextFrame(500, out frameInfo, out desktopResource);
+            }
+            catch (SharpDXException ex)
+            {
+                if (ex.ResultCode.Code == SharpDX.DXGI.ResultCode.WaitTimeout.Result.Code)
+                {
+                    return true;
+                }
+                if (ex.ResultCode.Failure)
+                    throw new DesktopDuplicationException("Failed to acquire next frame.");
+            }
+            using (var tempTexture = desktopResource.QueryInterface<Texture2D>())
+                mDevice.ImmediateContext.CopyResource(tempTexture, desktopImageTexture);
+            desktopResource.Dispose();
+            return false;
+        }
+
+        private void RetrieveFrameMetadata()
+        {
+
+        }
+        
+        private void ProcessFrame()
+        {
+            // Get the desktop capture texture
+            var mapSource = mDevice.ImmediateContext.MapSubresource(desktopImageTexture, 0, MapMode.Read, MapFlags.None);
+
+            FinalImage = new System.Drawing.Bitmap(mOutputDesc.DesktopBounds.Width, mOutputDesc.DesktopBounds.Height, PixelFormat.Format32bppRgb);
+            var boundsRect = new System.Drawing.Rectangle(0, 0, mOutputDesc.DesktopBounds.Width, mOutputDesc.DesktopBounds.Height);
+            // Copy pixels from screen capture Texture to GDI bitmap
+            var mapDest = FinalImage.LockBits(boundsRect, ImageLockMode.WriteOnly, FinalImage.PixelFormat);
+            var sourcePtr = mapSource.DataPointer;
+            var destPtr = mapDest.Scan0;
+            for (int y = 0; y < mOutputDesc.DesktopBounds.Height; y++)
+            {
+                // Copy a single line 
+                Utilities.CopyMemory(destPtr, sourcePtr, mOutputDesc.DesktopBounds.Width * 4);
+
+                // Advance pointers
+                sourcePtr = IntPtr.Add(sourcePtr, mapSource.RowPitch);
+                destPtr = IntPtr.Add(destPtr, mapDest.Stride);
+            }
+
+            // Release source and dest locks
+            FinalImage.UnlockBits(mapDest);
+            mDevice.ImmediateContext.UnmapSubresource(desktopImageTexture, 0);
+
+            Frame.DesktopImage = FinalImage;
+        }
+
+        private void ReleaseFrame()
+        {
+            try
+            {
+                mDeskDupl.ReleaseFrame();
+            }
+            catch (SharpDXException ex)
+            {
+                if (ex.ResultCode.Failure)
+                {
+                    throw new DesktopDuplicationException("Failed to release frame.");
+                }
+            }
         }
     }
 }
