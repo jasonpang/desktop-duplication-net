@@ -49,7 +49,7 @@ namespace DesktopDuplication
         public bool ProtectedContentMaskedOut { get; internal set; }
 
         /// <summary>
-        /// Gets whether the oeprating system accumulated updates by coalescing updated regions. If so, the updated regions might contain unmodified pixels.
+        /// Gets whether the operating system accumulated updates by coalescing updated regions. If so, the updated regions might contain unmodified pixels.
         /// </summary>
         public bool RectanglesCoalesced { get; internal set; }
     }

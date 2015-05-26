@@ -34,7 +34,7 @@ namespace DesktopDuplication.Demo
             {
                 Application.DoEvents();
                 desktopDuplicator.UpdateFrame();
-                this.BackgroundImage = desktopDuplicator.Frame.DesktopImage;
+                this.BackgroundImage = desktopDuplicator.CurrentFrame.DesktopImage;
             }
         }
     }

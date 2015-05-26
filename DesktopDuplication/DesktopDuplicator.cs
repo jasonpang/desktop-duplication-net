@@ -22,7 +22,7 @@ namespace DesktopDuplication
         /// <summary>
         /// Gets the last updated frame.
         /// </summary>
-        public DesktopFrame Frame { get; private set; }
+        public DesktopFrame CurrentFrame { get; private set; }
 
         private Device mDevice;
         private Texture2DDescription mTextureDesc;
@@ -69,7 +69,7 @@ namespace DesktopDuplication
         /// <param name="whichOutputDevice">The output device to duplicate (i.e. monitor). Begins with zero, which seems to correspond to the primary monitor.</param>
         public DesktopDuplicator(int whichGraphicsCardAdapter, int whichOutputDevice)
         {
-            Frame = new DesktopFrame();
+            CurrentFrame = new DesktopFrame();
             Adapter1 adapter = null;
             try
             {
@@ -198,7 +198,7 @@ namespace DesktopDuplication
             FinalImage.UnlockBits(mapDest);
             mDevice.ImmediateContext.UnmapSubresource(desktopImageTexture, 0);
 
-            Frame.DesktopImage = FinalImage;
+            CurrentFrame.DesktopImage = FinalImage;
         }
 
         private void ReleaseFrame()
