@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
+using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
 using System.Text;
@@ -33,8 +34,25 @@ namespace DesktopDuplication.Demo
             while (true)
             {
                 Application.DoEvents();
-                desktopDuplicator.UpdateFrame();
-                this.BackgroundImage = desktopDuplicator.CurrentFrame.DesktopImage;
+                var frame = desktopDuplicator.GetLatestFrame();
+
+                if (frame != null)
+                {
+                    Debug.WriteLine("--------------------------------------------------------");
+                    foreach (var moved in frame.MovedRegions)
+                    {
+                        Debug.WriteLine(String.Format("Moved: {0} -> {1}", moved.Source, moved.Destination));
+                        MovedRegion.Location = moved.Destination.Location;
+                        MovedRegion.Size = moved.Destination.Size;
+                    }
+                    foreach (var updated in frame.UpdatedRegions)
+                    {
+                        Debug.WriteLine(String.Format("Updated: {0}", updated.ToString()));
+                        UpdatedRegion.Location = updated.Location;
+                        UpdatedRegion.Size = updated.Size;
+                    }
+                    this.BackgroundImage = frame.DesktopImage;
+                }
             }
         }
     }

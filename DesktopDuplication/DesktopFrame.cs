@@ -44,6 +44,11 @@ namespace DesktopDuplication
         public Point CursorLocation { get; internal set; }
 
         /// <summary>
+        /// Gets whether the cursor on the last retrieved desktop image was visible.
+        /// </summary>
+        public bool CursorVisible { get; internal set; }
+
+        /// <summary>
         /// Gets whether the desktop image contains protected content that was already blacked out in the desktop image.
         /// </summary>
         public bool ProtectedContentMaskedOut { get; internal set; }

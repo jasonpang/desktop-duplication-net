@@ -19,17 +19,14 @@ namespace DesktopDuplication
     /// </summary>
     public class DesktopDuplicator
     {
-        /// <summary>
-        /// Gets the last updated frame.
-        /// </summary>
-        public DesktopFrame CurrentFrame { get; private set; }
-
         private Device mDevice;
         private Texture2DDescription mTextureDesc;
         private OutputDescription mOutputDesc;
         private OutputDuplication mDeskDupl;
 
         private Texture2D desktopImageTexture = null;
+        private OutputDuplicateFrameInformation frameInfo = new OutputDuplicateFrameInformation();
+        private int mWhichOutputDevice = -1;
 
         private Bitmap finalImage1, finalImage2;
         private bool isFinalImage1 = false;
@@ -69,7 +66,7 @@ namespace DesktopDuplication
         /// <param name="whichOutputDevice">The output device to duplicate (i.e. monitor). Begins with zero, which seems to correspond to the primary monitor.</param>
         public DesktopDuplicator(int whichGraphicsCardAdapter, int whichOutputDevice)
         {
-            CurrentFrame = new DesktopFrame();
+            this.mWhichOutputDevice = whichOutputDevice;
             Adapter1 adapter = null;
             try
             {
@@ -119,18 +116,20 @@ namespace DesktopDuplication
         }
 
         /// <summary>
-        /// Retrieves and stores the latest desktop image and metadata.
+        /// Retrieves the latest desktop image and associated metadata.
         /// </summary>
-        public void UpdateFrame()
+        public DesktopFrame GetLatestFrame()
         {
+            var frame = new DesktopFrame();
             // Try to get the latest frame; this may timeout
             bool retrievalTimedOut = RetrieveFrame();
             if (retrievalTimedOut)
-                return;
+                return null;
             try
             {
-                ProcessFrame();
-                RetrieveFrameMetadata();
+                RetrieveFrameMetadata(frame);
+                RetrieveCursorMetadata(frame);
+                ProcessFrame(frame);
             }
             catch
             {
@@ -140,7 +139,8 @@ namespace DesktopDuplication
             {
                 ReleaseFrame();
             }
-            catch { return; }
+            catch { throw new DesktopDuplicationException("Couldn't release frame.");  }
+            return frame;
         }
 
         private bool RetrieveFrame()
@@ -148,7 +148,7 @@ namespace DesktopDuplication
             if (desktopImageTexture == null)
                 desktopImageTexture = new Texture2D(mDevice, mTextureDesc);
             SharpDX.DXGI.Resource desktopResource = null;
-            var frameInfo = new OutputDuplicateFrameInformation();
+            frameInfo = new OutputDuplicateFrameInformation();
             try
             {
                 mDeskDupl.AcquireNextFrame(500, out frameInfo, out desktopResource);
@@ -168,12 +168,102 @@ namespace DesktopDuplication
             return false;
         }
 
-        private void RetrieveFrameMetadata()
+        private void RetrieveFrameMetadata(DesktopFrame frame)
         {
 
+            if (frameInfo.TotalMetadataBufferSize > 0)
+            {
+                // Get moved regions
+                int movedRegionsLength = 0;
+                OutputDuplicateMoveRectangle[] movedRectangles = new OutputDuplicateMoveRectangle[frameInfo.TotalMetadataBufferSize];
+                mDeskDupl.GetFrameMoveRects(movedRectangles.Length, movedRectangles, out movedRegionsLength);
+                frame.MovedRegions = new MovedRegion[movedRegionsLength / Marshal.SizeOf(typeof(OutputDuplicateMoveRectangle))];
+                for (int i = 0; i < frame.MovedRegions.Length; i++)
+                {
+                    frame.MovedRegions[i] = new MovedRegion()
+                    {
+                        Source = new System.Drawing.Point(movedRectangles[i].SourcePoint.X, movedRectangles[i].SourcePoint.Y),
+                        Destination = new System.Drawing.Rectangle(movedRectangles[i].DestinationRect.X, movedRectangles[i].DestinationRect.Y, movedRectangles[i].DestinationRect.Width, movedRectangles[i].DestinationRect.Height)
+                    };
+                }
+
+                // Get dirty regions
+                int dirtyRegionsLength = 0;
+                Rectangle[] dirtyRectangles = new Rectangle[frameInfo.TotalMetadataBufferSize];
+                mDeskDupl.GetFrameDirtyRects(dirtyRectangles.Length, dirtyRectangles, out dirtyRegionsLength);
+                frame.UpdatedRegions = new System.Drawing.Rectangle[dirtyRegionsLength / Marshal.SizeOf(typeof(Rectangle))];
+                for (int i = 0; i < frame.UpdatedRegions.Length; i++)
+                {
+                    frame.UpdatedRegions[i] = new System.Drawing.Rectangle(dirtyRectangles[i].X, dirtyRectangles[i].Y, dirtyRectangles[i].Width, dirtyRectangles[i].Height);
+                }
+            }
+            else
+            {
+                frame.MovedRegions = new MovedRegion[0];
+                frame.UpdatedRegions = new System.Drawing.Rectangle[0];
+            }
+        }
+
+        private void RetrieveCursorMetadata(DesktopFrame frame)
+        {
+            var pointerInfo = new PointerInfo();
+
+            // A non-zero mouse update timestamp indicates that there is a mouse position update and optionally a shape change
+            if (frameInfo.LastMouseUpdateTime == 0)
+                return;
+
+            bool updatePosition = true;
+
+            // Make sure we don't update pointer position wrongly
+            // If pointer is invisible, make sure we did not get an update from another output that the last time that said pointer
+            // was visible, if so, don't set it to invisible or update.
+
+            if (!frameInfo.PointerPosition.Visible && (pointerInfo.WhoUpdatedPositionLast != this.mWhichOutputDevice))
+                updatePosition = false;
+
+            // If two outputs both say they have a visible, only update if new update has newer timestamp
+            if (frameInfo.PointerPosition.Visible && pointerInfo.Visible && (pointerInfo.WhoUpdatedPositionLast != this.mWhichOutputDevice) && (pointerInfo.LastTimeStamp > frameInfo.LastMouseUpdateTime))
+                updatePosition = false;
+
+            // Update position
+            if (updatePosition)
+            {
+                pointerInfo.Position = new SharpDX.Point(frameInfo.PointerPosition.Position.X, frameInfo.PointerPosition.Position.Y);
+                pointerInfo.WhoUpdatedPositionLast = mWhichOutputDevice;
+                pointerInfo.LastTimeStamp = frameInfo.LastMouseUpdateTime;
+                pointerInfo.Visible = frameInfo.PointerPosition.Visible;
+            }
+                        
+            // No new shape
+            if (frameInfo.PointerShapeBufferSize == 0)
+                return;
+
+            if (frameInfo.PointerShapeBufferSize > pointerInfo.BufferSize)
+            {
+                pointerInfo.PtrShapeBuffer = new byte[frameInfo.PointerShapeBufferSize];
+                pointerInfo.BufferSize = frameInfo.PointerShapeBufferSize;
+            }
+
+            try
+            {
+                unsafe
+                {
+                    fixed (byte* ptrShapeBufferPtr = pointerInfo.PtrShapeBuffer)
+                    {
+                        mDeskDupl.GetFramePointerShape(frameInfo.PointerShapeBufferSize, (IntPtr)ptrShapeBufferPtr, out pointerInfo.BufferSize, out pointerInfo.ShapeInfo);
+                    }
+                }
+            }
+            catch (SharpDXException ex)
+            {
+                if (ex.ResultCode.Failure)
+                {
+                    throw new DesktopDuplicationException("Failed to get frame pointer shape.");
+                }
+            }
         }
         
-        private void ProcessFrame()
+        private void ProcessFrame(DesktopFrame frame)
         {
             // Get the desktop capture texture
             var mapSource = mDevice.ImmediateContext.MapSubresource(desktopImageTexture, 0, MapMode.Read, MapFlags.None);
@@ -197,8 +287,7 @@ namespace DesktopDuplication
             // Release source and dest locks
             FinalImage.UnlockBits(mapDest);
             mDevice.ImmediateContext.UnmapSubresource(desktopImageTexture, 0);
-
-            CurrentFrame.DesktopImage = FinalImage;
+            frame.DesktopImage = FinalImage;
         }
 
         private void ReleaseFrame()
