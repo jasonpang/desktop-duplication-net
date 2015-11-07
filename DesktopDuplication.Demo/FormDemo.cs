@@ -34,23 +34,35 @@ namespace DesktopDuplication.Demo
             while (true)
             {
                 Application.DoEvents();
-                var frame = desktopDuplicator.GetLatestFrame();
+
+                DesktopFrame frame = null;
+                try
+                {
+                    frame = desktopDuplicator.GetLatestFrame();
+                }
+                catch
+                {
+                    desktopDuplicator = new DesktopDuplicator(0);
+                    continue;
+                }
 
                 if (frame != null)
                 {
-                    Debug.WriteLine("--------------------------------------------------------");
-                    foreach (var moved in frame.MovedRegions)
-                    {
-                        Debug.WriteLine(String.Format("Moved: {0} -> {1}", moved.Source, moved.Destination));
-                        MovedRegion.Location = moved.Destination.Location;
-                        MovedRegion.Size = moved.Destination.Size;
-                    }
-                    foreach (var updated in frame.UpdatedRegions)
-                    {
-                        Debug.WriteLine(String.Format("Updated: {0}", updated.ToString()));
-                        UpdatedRegion.Location = updated.Location;
-                        UpdatedRegion.Size = updated.Size;
-                    }
+                    LabelCursor.Location = frame.CursorLocation;
+                    LabelCursor.Visible = frame.CursorVisible;
+                    //Debug.WriteLine("--------------------------------------------------------");
+                    //foreach (var moved in frame.MovedRegions)
+                    //{
+                    //    Debug.WriteLine(String.Format("Moved: {0} -> {1}", moved.Source, moved.Destination));
+                    //    MovedRegion.Location = moved.Destination.Location;
+                    //    MovedRegion.Size = moved.Destination.Size;
+                    //}
+                    //foreach (var updated in frame.UpdatedRegions)
+                    //{
+                    //    Debug.WriteLine(String.Format("Updated: {0}", updated.ToString()));
+                    //    UpdatedRegion.Location = updated.Location;
+                    //    UpdatedRegion.Size = updated.Size;
+                    //}
                     this.BackgroundImage = frame.DesktopImage;
                 }
             }

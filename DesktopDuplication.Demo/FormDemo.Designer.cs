@@ -30,6 +30,7 @@
         {
             this.UpdatedRegion = new System.Windows.Forms.Label();
             this.MovedRegion = new System.Windows.Forms.Label();
+            this.LabelCursor = new System.Windows.Forms.Label();
             this.SuspendLayout();
             // 
             // UpdatedRegion
@@ -48,11 +49,20 @@
             this.MovedRegion.Size = new System.Drawing.Size(1, 1);
             this.MovedRegion.TabIndex = 1;
             // 
+            // LabelCursor
+            // 
+            this.LabelCursor.BackColor = System.Drawing.Color.Red;
+            this.LabelCursor.Location = new System.Drawing.Point(141, 97);
+            this.LabelCursor.Name = "LabelCursor";
+            this.LabelCursor.Size = new System.Drawing.Size(15, 15);
+            this.LabelCursor.TabIndex = 2;
+            // 
             // FormDemo
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(616, 431);
+            this.Controls.Add(this.LabelCursor);
             this.Controls.Add(this.MovedRegion);
             this.Controls.Add(this.UpdatedRegion);
             this.DoubleBuffered = true;
@@ -67,6 +77,7 @@
 
         private System.Windows.Forms.Label UpdatedRegion;
         private System.Windows.Forms.Label MovedRegion;
+        private System.Windows.Forms.Label LabelCursor;
     }
 }
 
