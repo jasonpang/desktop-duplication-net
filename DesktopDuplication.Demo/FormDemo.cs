@@ -6,15 +6,20 @@ namespace DesktopDuplication.Demo
 {
     public partial class FormDemo : Form
     {
-        private DesktopDuplicator desktopDuplicator;
+        private Bitmap _screen;
+        private DesktopDuplicator _desktopDuplicator;
+        private Bitmap _cursorImage;
+        private Point _cursorLocation;
 
         public FormDemo()
         {
             InitializeComponent();
 
+            Paint += CursorPaint;
+
             try
             {
-                desktopDuplicator = new DesktopDuplicator(0);
+                _desktopDuplicator = new DesktopDuplicator(0);
             }
             catch (Exception ex)
             {
@@ -22,41 +27,61 @@ namespace DesktopDuplication.Demo
             }
         }
 
+        private void CursorPaint(object sender, PaintEventArgs e)
+        {
+            if (_screen != null)
+            {
+                e.Graphics.DrawImage(_screen, e.ClipRectangle, e.ClipRectangle, GraphicsUnit.Pixel);
+                //e.Graphics.DrawImageUnscaledAndClipped(screen, ClientRectangle);
+            }
+            if (_cursorImage != null)
+            {
+                e.Graphics.DrawImageUnscaled(_cursorImage, _cursorLocation);
+            }
+        }
+
         private void FormDemo_Shown(object sender, EventArgs e)
         {
-            while (true)
+            while (Visible)
             {
                 Application.DoEvents();
+                FormBorderStyle = WindowState == FormWindowState.Maximized ? FormBorderStyle.None : FormBorderStyle.Sizable;
 
-                DesktopFrame frame = null;
+                DesktopFrame frame;
                 try
                 {
-                    frame = desktopDuplicator.GetLatestFrame();
+                    frame = _desktopDuplicator.GetLatestFrame();
                 }
                 catch
                 {
-                    desktopDuplicator = new DesktopDuplicator(0);
+                    _desktopDuplicator = new DesktopDuplicator(0);
                     continue;
                 }
 
                 if (frame != null)
                 {
-                    LabelCursor.Location = frame.CursorLocation;
-                    LabelCursor.Visible = frame.CursorVisible;
-                    //Debug.WriteLine("--------------------------------------------------------");
-                    //foreach (var moved in frame.MovedRegions)
-                    //{
-                    //    Debug.WriteLine(String.Format("Moved: {0} -> {1}", moved.Source, moved.Destination));
-                    //    MovedRegion.Location = moved.Destination.Location;
-                    //    MovedRegion.Size = moved.Destination.Size;
-                    //}
-                    //foreach (var updated in frame.UpdatedRegions)
-                    //{
-                    //    Debug.WriteLine(String.Format("Updated: {0}", updated.ToString()));
-                    //    UpdatedRegion.Location = updated.Location;
-                    //    UpdatedRegion.Size = updated.Size;
-                    //}
-                    this.BackgroundImage = frame.DesktopImage;
+                    var update = new Region();
+                    if (frame.CursorBitmap != null) {
+                        _cursorImage?.Dispose();
+                        _cursorImage = frame.CursorBitmap;
+                        update.Union(new Rectangle(_cursorLocation, _cursorImage.Size));
+                    }
+                    if (frame.CursorLocation != new Point())
+                    {
+                        update.Union(new Rectangle(_cursorLocation, _cursorImage.Size));
+                        _cursorLocation = frame.CursorLocation;
+                        update.Union(new Rectangle(_cursorLocation, _cursorImage.Size));
+                    }
+
+                    if (frame.DesktopImage != null) {
+                        _screen?.Dispose();
+                        _screen = frame.DesktopImage;
+                        //update.Union(ClientRectangle);
+                        foreach (var region in frame.UpdatedRegions) update.Union(region);
+                        foreach (var region in frame.MovedRegions) update.Union(region.Destination);
+                    }
+
+                    Invalidate(update, false);
                 }
             }
         }

@@ -1,3 +1,4 @@
+﻿using System.Drawing;
 
 namespace DesktopDuplication
 {
@@ -51,5 +52,7 @@ namespace DesktopDuplication
         /// Gets whether the operating system accumulated updates by coalescing updated regions. If so, the updated regions might contain unmodified pixels.
         /// </summary>
         public bool RectanglesCoalesced { get; internal set; }
+
+        public Bitmap CursorBitmap { get; internal set; }
     }
 }

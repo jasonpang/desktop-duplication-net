@@ -1,7 +1,5 @@
 ﻿using System;
 using System.Drawing.Imaging;
-using System.IO;
-
 using SharpDX;
 using SharpDX.Direct3D11;
 using SharpDX.DXGI;
@@ -9,7 +7,6 @@ using Device = SharpDX.Direct3D11.Device;
 using MapFlags = SharpDX.Direct3D11.MapFlags;
 using Rectangle = SharpDX.Rectangle;
 using System.Drawing;
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace DesktopDuplication
@@ -19,38 +16,16 @@ namespace DesktopDuplication
     /// </summary>
     public class DesktopDuplicator
     {
-        private Device mDevice;
-        private Texture2DDescription mTextureDesc;
-        private OutputDescription mOutputDesc;
-        private OutputDuplication mDeskDupl;
+        private readonly Device _device;
+        private readonly Texture2DDescription _textureDescription;
+        private OutputDescription _outputDescription;
+        private readonly OutputDuplication _deskDupl;
 
-        private Texture2D desktopImageTexture = null;
-        private OutputDuplicateFrameInformation frameInfo = new OutputDuplicateFrameInformation();
-        private int mWhichOutputDevice = -1;
+        private Texture2D _desktopImageTexture;
+        private OutputDuplicateFrameInformation _frameInfo;
+        private readonly int _whichOutputDevice;
 
-        private Bitmap finalImage1, finalImage2;
-        private bool isFinalImage1 = false;
-        private Bitmap FinalImage
-        {
-            get
-            {
-                return isFinalImage1 ? finalImage1 : finalImage2;
-            }
-            set
-            {
-                if (isFinalImage1)
-                {
-                    finalImage2 = value;
-                    if (finalImage1 != null) finalImage1.Dispose();
-                }
-                else
-                {
-                    finalImage1 = value;
-                    if (finalImage2 != null) finalImage2.Dispose();
-                }
-                isFinalImage1 = !isFinalImage1;
-            }
-        }
+        private Bitmap FinalImage { get; set; }
 
         /// <summary>
         /// Duplicates the output of the specified monitor.
@@ -66,8 +41,8 @@ namespace DesktopDuplication
         /// <param name="whichOutputDevice">The output device to duplicate (i.e. monitor). Begins with zero, which seems to correspond to the primary monitor.</param>
         public DesktopDuplicator(int whichGraphicsCardAdapter, int whichOutputDevice)
         {
-            this.mWhichOutputDevice = whichOutputDevice;
-            Adapter1 adapter = null;
+            _whichOutputDevice = whichOutputDevice;
+            Adapter1 adapter;
             try
             {
                 adapter = new Factory1().GetAdapter1(whichGraphicsCardAdapter);
@@ -76,8 +51,8 @@ namespace DesktopDuplication
             {
                 throw new DesktopDuplicationException("Could not find the specified graphics card adapter.");
             }
-            this.mDevice = new Device(adapter);
-            Output output = null;
+            _device = new Device(adapter);
+            Output output;
             try
             {
                 output = adapter.GetOutput(whichOutputDevice);
@@ -87,14 +62,14 @@ namespace DesktopDuplication
                 throw new DesktopDuplicationException("Could not find the specified output device.");
             }
             var output1 = output.QueryInterface<Output1>();
-            this.mOutputDesc = output.Description;
-            this.mTextureDesc = new Texture2DDescription()
+            _outputDescription = output.Description;
+            _textureDescription = new Texture2DDescription()
             {
                 CpuAccessFlags = CpuAccessFlags.Read,
                 BindFlags = BindFlags.None,
                 Format = Format.B8G8R8A8_UNorm,
-                Width = this.mOutputDesc.DesktopBounds.Width,
-                Height = this.mOutputDesc.DesktopBounds.Height,
+                Width = _outputDescription.DesktopBounds.Width,
+                Height = _outputDescription.DesktopBounds.Height,
                 OptionFlags = ResourceOptionFlags.None,
                 MipLevels = 1,
                 ArraySize = 1,
@@ -104,7 +79,7 @@ namespace DesktopDuplication
 
             try
             {
-                this.mDeskDupl = output1.DuplicateOutput(mDevice);
+                _deskDupl = output1.DuplicateOutput(_device);
             }
             catch (SharpDXException ex)
             {
@@ -122,18 +97,19 @@ namespace DesktopDuplication
         {
             var frame = new DesktopFrame();
             // Try to get the latest frame; this may timeout
-            bool retrievalTimedOut = RetrieveFrame();
+            var retrievalTimedOut = RetrieveFrame();
             if (retrievalTimedOut)
                 return null;
             try
             {
                 RetrieveFrameMetadata(frame);
                 RetrieveCursorMetadata(frame);
-                ProcessFrame(frame);
+                if (frame.MovedRegions.Length != 0 || frame.UpdatedRegions.Length != 0)
+                    ProcessFrame(frame);
             }
             catch
             {
-                ReleaseFrame();
+                // ignored
             }
             try
             {
@@ -147,13 +123,19 @@ namespace DesktopDuplication
 
         private bool RetrieveFrame()
         {
-            if (desktopImageTexture == null)
-                desktopImageTexture = new Texture2D(mDevice, mTextureDesc);
-            SharpDX.DXGI.Resource desktopResource = null;
-            frameInfo = new OutputDuplicateFrameInformation();
+            if (_desktopImageTexture == null)
+                _desktopImageTexture = new Texture2D(_device, _textureDescription);
+            _frameInfo = new OutputDuplicateFrameInformation();
             try
             {
-                mDeskDupl.AcquireNextFrame(500, out frameInfo, out desktopResource);
+                SharpDX.DXGI.Resource desktopResource;
+                _deskDupl.AcquireNextFrame(500, out _frameInfo, out desktopResource);
+
+                using (var tempTexture = desktopResource.QueryInterface<Texture2D>())
+                    _device.ImmediateContext.CopyResource(tempTexture, _desktopImageTexture);
+
+                desktopResource.Dispose();
+                return false;
             }
             catch (SharpDXException ex)
             {
@@ -165,24 +147,20 @@ namespace DesktopDuplication
                 {
                     throw new DesktopDuplicationException("Failed to acquire next frame.");
                 }
+                return false;
             }
-            using (var tempTexture = desktopResource.QueryInterface<Texture2D>())
-                mDevice.ImmediateContext.CopyResource(tempTexture, desktopImageTexture);
-            desktopResource.Dispose();
-            return false;
         }
 
         private void RetrieveFrameMetadata(DesktopFrame frame)
         {
-
-            if (frameInfo.TotalMetadataBufferSize > 0)
+            if (_frameInfo.TotalMetadataBufferSize > 0)
             {
                 // Get moved regions
-                int movedRegionsLength = 0;
-                OutputDuplicateMoveRectangle[] movedRectangles = new OutputDuplicateMoveRectangle[frameInfo.TotalMetadataBufferSize];
-                mDeskDupl.GetFrameMoveRects(movedRectangles.Length, movedRectangles, out movedRegionsLength);
+                int movedRegionsLength;
+                var movedRectangles = new OutputDuplicateMoveRectangle[_frameInfo.TotalMetadataBufferSize];
+                _deskDupl.GetFrameMoveRects(movedRectangles.Length, movedRectangles, out movedRegionsLength);
                 frame.MovedRegions = new MovedRegion[movedRegionsLength / Marshal.SizeOf(typeof(OutputDuplicateMoveRectangle))];
-                for (int i = 0; i < frame.MovedRegions.Length; i++)
+                for (var i = 0; i < frame.MovedRegions.Length; i++)
                 {
                     frame.MovedRegions[i] = new MovedRegion()
                     {
@@ -192,11 +170,11 @@ namespace DesktopDuplication
                 }
 
                 // Get dirty regions
-                int dirtyRegionsLength = 0;
-                Rectangle[] dirtyRectangles = new Rectangle[frameInfo.TotalMetadataBufferSize];
-                mDeskDupl.GetFrameDirtyRects(dirtyRectangles.Length, dirtyRectangles, out dirtyRegionsLength);
+                int dirtyRegionsLength;
+                var dirtyRectangles = new Rectangle[_frameInfo.TotalMetadataBufferSize];
+                _deskDupl.GetFrameDirtyRects(dirtyRectangles.Length, dirtyRectangles, out dirtyRegionsLength);
                 frame.UpdatedRegions = new System.Drawing.Rectangle[dirtyRegionsLength / Marshal.SizeOf(typeof(Rectangle))];
-                for (int i = 0; i < frame.UpdatedRegions.Length; i++)
+                for (var i = 0; i < frame.UpdatedRegions.Length; i++)
                 {
                     frame.UpdatedRegions[i] = new System.Drawing.Rectangle(dirtyRectangles[i].X, dirtyRectangles[i].Y, dirtyRectangles[i].Width, dirtyRectangles[i].Height);
                 }
@@ -213,56 +191,68 @@ namespace DesktopDuplication
             var pointerInfo = new PointerInfo();
 
             // A non-zero mouse update timestamp indicates that there is a mouse position update and optionally a shape change
-            if (frameInfo.LastMouseUpdateTime == 0)
-                return;
+            //if (frameInfo.LastMouseUpdateTime == 0)
+            //    return;
 
-            bool updatePosition = true;
-
-            // Make sure we don't update pointer position wrongly
-            // If pointer is invisible, make sure we did not get an update from another output that the last time that said pointer
-            // was visible, if so, don't set it to invisible or update.
-
-            if (!frameInfo.PointerPosition.Visible && (pointerInfo.WhoUpdatedPositionLast != this.mWhichOutputDevice))
-                updatePosition = false;
+            var updatePosition = _frameInfo.PointerPosition.Visible || (pointerInfo.WhoUpdatedPositionLast == _whichOutputDevice);
 
             // If two outputs both say they have a visible, only update if new update has newer timestamp
-            if (frameInfo.PointerPosition.Visible && pointerInfo.Visible && (pointerInfo.WhoUpdatedPositionLast != this.mWhichOutputDevice) && (pointerInfo.LastTimeStamp > frameInfo.LastMouseUpdateTime))
+            if (_frameInfo.PointerPosition.Visible && pointerInfo.Visible && (pointerInfo.WhoUpdatedPositionLast != _whichOutputDevice) && (pointerInfo.LastTimeStamp > _frameInfo.LastMouseUpdateTime))
                 updatePosition = false;
 
             // Update position
             if (updatePosition)
             {
-                pointerInfo.Position = new SharpDX.Point(frameInfo.PointerPosition.Position.X, frameInfo.PointerPosition.Position.Y);
-                pointerInfo.WhoUpdatedPositionLast = mWhichOutputDevice;
-                pointerInfo.LastTimeStamp = frameInfo.LastMouseUpdateTime;
-                pointerInfo.Visible = frameInfo.PointerPosition.Visible;
+                pointerInfo.Position = new SharpDX.Point(_frameInfo.PointerPosition.Position.X, _frameInfo.PointerPosition.Position.Y);
+                pointerInfo.WhoUpdatedPositionLast = _whichOutputDevice;
+                pointerInfo.LastTimeStamp = _frameInfo.LastMouseUpdateTime;
+                pointerInfo.Visible = _frameInfo.PointerPosition.Visible;
             }
                         
             // No new shape
-            if (frameInfo.PointerShapeBufferSize == 0)
-                return;
-
-            if (frameInfo.PointerShapeBufferSize > pointerInfo.BufferSize)
+            if (_frameInfo.PointerShapeBufferSize != 0)
             {
-                pointerInfo.PtrShapeBuffer = new byte[frameInfo.PointerShapeBufferSize];
-                pointerInfo.BufferSize = frameInfo.PointerShapeBufferSize;
-            }
-
-            try
-            {
-                unsafe
+                if (_frameInfo.PointerShapeBufferSize > pointerInfo.BufferSize)
                 {
-                    fixed (byte* ptrShapeBufferPtr = pointerInfo.PtrShapeBuffer)
+                    pointerInfo.PtrShapeBuffer = new byte[_frameInfo.PointerShapeBufferSize];
+                    pointerInfo.BufferSize = _frameInfo.PointerShapeBufferSize;
+                }
+
+                try
+                {
+                    unsafe
                     {
-                        mDeskDupl.GetFramePointerShape(frameInfo.PointerShapeBufferSize, (IntPtr)ptrShapeBufferPtr, out pointerInfo.BufferSize, out pointerInfo.ShapeInfo);
+                        fixed (byte* ptrShapeBufferPtr = pointerInfo.PtrShapeBuffer)
+                        {
+                            _deskDupl.GetFramePointerShape(_frameInfo.PointerShapeBufferSize, (IntPtr) ptrShapeBufferPtr,
+                                out pointerInfo.BufferSize, out pointerInfo.ShapeInfo);
+
+                            var bitmap = new Bitmap(pointerInfo.ShapeInfo.Width, pointerInfo.ShapeInfo.Height, PixelFormat.Format32bppArgb);
+                            var boundsRect = new System.Drawing.Rectangle(0, 0, pointerInfo.ShapeInfo.Width, pointerInfo.ShapeInfo.Height);
+                            var mapDest = bitmap.LockBits(boundsRect, ImageLockMode.WriteOnly, bitmap.PixelFormat);
+                            var sourcePtr = (IntPtr) ptrShapeBufferPtr;
+                            var destPtr = mapDest.Scan0;
+                            for (var y = 0; y < pointerInfo.ShapeInfo.Height; y++) {
+                                // Copy a single line 
+                                Utilities.CopyMemory(destPtr, sourcePtr, pointerInfo.ShapeInfo.Width * 4);
+
+                                // Advance pointers
+                                sourcePtr = IntPtr.Add(sourcePtr, pointerInfo.ShapeInfo.Pitch);
+                                destPtr = IntPtr.Add(destPtr, mapDest.Stride);
+                            }
+
+                            // Release bitmap lock
+                            bitmap.UnlockBits(mapDest);
+                            frame.CursorBitmap = bitmap;
+                        }
                     }
                 }
-            }
-            catch (SharpDXException ex)
-            {
-                if (ex.ResultCode.Failure)
+                catch (SharpDXException ex)
                 {
-                    throw new DesktopDuplicationException("Failed to get frame pointer shape.");
+                    if (ex.ResultCode.Failure)
+                    {
+                        throw new DesktopDuplicationException("Failed to get frame pointer shape.");
+                    }
                 }
             }
 
@@ -273,18 +263,18 @@ namespace DesktopDuplication
         private void ProcessFrame(DesktopFrame frame)
         {
             // Get the desktop capture texture
-            var mapSource = mDevice.ImmediateContext.MapSubresource(desktopImageTexture, 0, MapMode.Read, MapFlags.None);
+            var mapSource = _device.ImmediateContext.MapSubresource(_desktopImageTexture, 0, MapMode.Read, MapFlags.None);
 
-            FinalImage = new System.Drawing.Bitmap(mOutputDesc.DesktopBounds.Width, mOutputDesc.DesktopBounds.Height, PixelFormat.Format32bppRgb);
-            var boundsRect = new System.Drawing.Rectangle(0, 0, mOutputDesc.DesktopBounds.Width, mOutputDesc.DesktopBounds.Height);
+            FinalImage = new Bitmap(_outputDescription.DesktopBounds.Width, _outputDescription.DesktopBounds.Height, PixelFormat.Format32bppRgb);
+            var boundsRect = new System.Drawing.Rectangle(0, 0, _outputDescription.DesktopBounds.Width, _outputDescription.DesktopBounds.Height);
             // Copy pixels from screen capture Texture to GDI bitmap
             var mapDest = FinalImage.LockBits(boundsRect, ImageLockMode.WriteOnly, FinalImage.PixelFormat);
             var sourcePtr = mapSource.DataPointer;
             var destPtr = mapDest.Scan0;
-            for (int y = 0; y < mOutputDesc.DesktopBounds.Height; y++)
+            for (var y = 0; y < _outputDescription.DesktopBounds.Height; y++)
             {
                 // Copy a single line 
-                Utilities.CopyMemory(destPtr, sourcePtr, mOutputDesc.DesktopBounds.Width * 4);
+                Utilities.CopyMemory(destPtr, sourcePtr, _outputDescription.DesktopBounds.Width * 4);
 
                 // Advance pointers
                 sourcePtr = IntPtr.Add(sourcePtr, mapSource.RowPitch);
@@ -293,7 +283,7 @@ namespace DesktopDuplication
 
             // Release source and dest locks
             FinalImage.UnlockBits(mapDest);
-            mDevice.ImmediateContext.UnmapSubresource(desktopImageTexture, 0);
+            _device.ImmediateContext.UnmapSubresource(_desktopImageTexture, 0);
             frame.DesktopImage = FinalImage;
         }
 
@@ -301,7 +291,7 @@ namespace DesktopDuplication
         {
             try
             {
-                mDeskDupl.ReleaseFrame();
+                _deskDupl.ReleaseFrame();
             }
             catch (SharpDXException ex)
             {
