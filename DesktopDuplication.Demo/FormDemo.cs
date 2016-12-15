@@ -66,7 +66,7 @@ namespace DesktopDuplication.Demo
                         _cursorImage = frame.CursorBitmap;
                         update.Union(new Rectangle(_cursorLocation, _cursorImage.Size));
                     }
-                    if (frame.CursorLocation != new Point())
+                    if (frame.CursorLocation != new Point() && _cursorImage != null)
                     {
                         update.Union(new Rectangle(_cursorLocation, _cursorImage.Size));
                         _cursorLocation = frame.CursorLocation;
