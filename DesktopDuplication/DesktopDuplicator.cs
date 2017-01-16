@@ -7,6 +7,7 @@ using Device = SharpDX.Direct3D11.Device;
 using MapFlags = SharpDX.Direct3D11.MapFlags;
 using Rectangle = SharpDX.Rectangle;
 using System.Drawing;
+using System.IO;
 using System.Runtime.InteropServices;
 
 namespace DesktopDuplication
@@ -198,7 +199,7 @@ namespace DesktopDuplication
                 var movedRectangles = new OutputDuplicateMoveRectangle[_frameInfo.TotalMetadataBufferSize];
                 _deskDupl.GetFrameMoveRects(movedRectangles.Length, movedRectangles, out movedRegionsLength);
                 frame.MovedRegions =
-                    new MovedRegion[movedRegionsLength/Marshal.SizeOf(typeof(OutputDuplicateMoveRectangle))];
+                    new MovedRegion[movedRegionsLength / Marshal.SizeOf(typeof(OutputDuplicateMoveRectangle))];
                 for (var i = 0; i < frame.MovedRegions.Length; i++)
                 {
                     frame.MovedRegions[i] = new MovedRegion()
@@ -217,7 +218,7 @@ namespace DesktopDuplication
                 var dirtyRectangles = new Rectangle[_frameInfo.TotalMetadataBufferSize];
                 _deskDupl.GetFrameDirtyRects(dirtyRectangles.Length, dirtyRectangles, out dirtyRegionsLength);
                 frame.UpdatedRegions =
-                    new System.Drawing.Rectangle[dirtyRegionsLength/Marshal.SizeOf(typeof(Rectangle))];
+                    new System.Drawing.Rectangle[dirtyRegionsLength / Marshal.SizeOf(typeof(Rectangle))];
                 for (var i = 0; i < frame.UpdatedRegions.Length; i++)
                 {
                     frame.UpdatedRegions[i] = new System.Drawing.Rectangle(dirtyRectangles[i].X, dirtyRectangles[i].Y,
@@ -230,6 +231,9 @@ namespace DesktopDuplication
                 frame.UpdatedRegions = new System.Drawing.Rectangle[0];
             }
         }
+
+        private static readonly byte[] BitPalette = {0, 0, 0, 0, 255, 255, 255, 0};
+        private static readonly byte[] NoPalette = new byte[0];
 
         private void RetrieveCursorMetadata(DesktopFrame frame)
         {
@@ -272,54 +276,39 @@ namespace DesktopDuplication
                     {
                         fixed (byte* ptrShapeBufferPtr = pointerInfo.PtrShapeBuffer)
                         {
-                            int bufferSize;
                             _deskDupl.GetFramePointerShape(_frameInfo.PointerShapeBufferSize, (IntPtr) ptrShapeBufferPtr,
-                                out bufferSize, out pointerInfo.ShapeInfo);
+                                out int bufferSize, out pointerInfo.ShapeInfo);
 
-                            var width = pointerInfo.ShapeInfo.Width;
+                            // invert line order or Icon will be upside down
                             var height = pointerInfo.ShapeInfo.Height;
-
-                            if (pointerInfo.ShapeInfo.Type == 1) height /= 2;
-
-                            var bitmap = new Bitmap(width, height, PixelFormat.Format32bppArgb);
-                            var boundsRect = new System.Drawing.Rectangle(0, 0, width, height);
-
-                            var mapDest = bitmap.LockBits(boundsRect, ImageLockMode.WriteOnly, bitmap.PixelFormat);
+                            var imageArray = new byte[bufferSize];
                             var sourcePtr = (IntPtr) ptrShapeBufferPtr;
-                            var destPtr = mapDest.Scan0;
-                            for (var y = 0; y < height; y++)
+                            for (var y = height - 1; y >= 0; y--)
                             {
-                                if (pointerInfo.ShapeInfo.Type == 1)
-                                {
-                                    for (var x = 0; x < pointerInfo.ShapeInfo.Width;)
-                                    {
-                                        var color = Marshal.ReadByte(sourcePtr, x/8);
-                                        var mask = Marshal.ReadByte(sourcePtr, height*pointerInfo.ShapeInfo.Pitch + x/8);
-                                        for (var i = 0; i < 8 && x < width; x++, i++)
-                                        {
-                                            Int32 rgba = (0 != (mask & 128))
-                                                ? (0 != (color & 128) ? -16777216 : - 1)
-                                                : 0;
-                                            Marshal.WriteInt32(destPtr, x*4, rgba);
-                                            color *= 2;
-                                            mask *= 2;
-                                        }
-                                    }
-                                }
-                                else if (pointerInfo.ShapeInfo.Type == 2 || pointerInfo.ShapeInfo.Type == 4)
-                                {
-                                    // Copy a single line 
-                                    Utilities.CopyMemory(destPtr, sourcePtr, width*4);
-                                }
-
-                                // Advance pointers
+                                Marshal.Copy(sourcePtr, imageArray, y * pointerInfo.ShapeInfo.Pitch,
+                                    pointerInfo.ShapeInfo.Pitch);
                                 sourcePtr = IntPtr.Add(sourcePtr, pointerInfo.ShapeInfo.Pitch);
-                                destPtr = IntPtr.Add(destPtr, mapDest.Stride);
                             }
 
-                            // Release bitmap lock
-                            bitmap.UnlockBits(mapDest);
-                            frame.CursorBitmap = bitmap;
+                            var iconBuilder = new IconBuilder
+                            {
+                                BmpHeader =
+                                {
+                                    Width = (uint) pointerInfo.ShapeInfo.Width,
+                                    Height = (uint) (pointerInfo.ShapeInfo.Type == 1 ? height / 2 : height),
+                                    BitCount = (ushort) (pointerInfo.ShapeInfo.Type == 1 ? 1 : 32),
+                                },
+                                Palette =
+                                {
+                                    Data = (pointerInfo.ShapeInfo.Type == 1 ? BitPalette : NoPalette)
+                                },
+                                Image =
+                                {
+                                    Data = imageArray
+                                }
+                            };
+
+                            frame.CursorIcon = iconBuilder.Build();
                         }
                     }
                 }
@@ -352,7 +341,7 @@ namespace DesktopDuplication
             for (var y = 0; y < _outputDescription.DesktopBounds.Height; y++)
             {
                 // Copy a single line 
-                Utilities.CopyMemory(destPtr, sourcePtr, _outputDescription.DesktopBounds.Width*4);
+                Utilities.CopyMemory(destPtr, sourcePtr, _outputDescription.DesktopBounds.Width * 4);
 
                 // Advance pointers
                 sourcePtr = IntPtr.Add(sourcePtr, mapSource.RowPitch);

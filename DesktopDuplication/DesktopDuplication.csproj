@@ -60,6 +60,7 @@
     <Compile Include="DesktopDuplicationException.cs" />
     <Compile Include="DesktopDuplicator.cs" />
     <Compile Include="DesktopFrame.cs" />
+    <Compile Include="IconBuilder.cs" />
     <Compile Include="MovedRegion.cs" />
     <Compile Include="PointerInfo.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

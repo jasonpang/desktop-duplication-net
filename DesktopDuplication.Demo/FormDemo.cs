@@ -8,7 +8,7 @@ namespace DesktopDuplication.Demo
     {
         private Bitmap _screen;
         private DesktopDuplicator _desktopDuplicator;
-        private Bitmap _cursorImage;
+        private Icon _cursorIcon;
         private Point _cursorLocation;
 
         public FormDemo()
@@ -34,9 +34,9 @@ namespace DesktopDuplication.Demo
                 e.Graphics.DrawImage(_screen, e.ClipRectangle, e.ClipRectangle, GraphicsUnit.Pixel);
                 //e.Graphics.DrawImageUnscaledAndClipped(screen, ClientRectangle);
             }
-            if (_cursorImage != null)
+            if (_cursorIcon != null)
             {
-                e.Graphics.DrawImageUnscaled(_cursorImage, _cursorLocation);
+                e.Graphics.DrawIcon(_cursorIcon, _cursorLocation.X, _cursorLocation.Y);
             }
         }
 
@@ -61,16 +61,17 @@ namespace DesktopDuplication.Demo
                 if (frame != null)
                 {
                     var update = new Region();
-                    if (frame.CursorBitmap != null) {
-                        _cursorImage?.Dispose();
-                        _cursorImage = frame.CursorBitmap;
-                        update.Union(new Rectangle(_cursorLocation, _cursorImage.Size));
-                    }
-                    if (frame.CursorLocation != new Point() && _cursorImage != null)
+                    if (frame.CursorIcon != null)
                     {
-                        update.Union(new Rectangle(_cursorLocation, _cursorImage.Size));
+                        _cursorIcon?.Dispose();
+                        _cursorIcon = frame.CursorIcon;
+                        update.Union(new Rectangle(_cursorLocation, _cursorIcon.Size));
+                    }
+                    if (frame.CursorLocation != new Point() && _cursorIcon != null)
+                    {
+                        update.Union(new Rectangle(_cursorLocation, _cursorIcon.Size));
                         _cursorLocation = frame.CursorLocation;
-                        update.Union(new Rectangle(_cursorLocation, _cursorImage.Size));
+                        update.Union(new Rectangle(_cursorLocation, _cursorIcon.Size));
                     }
 
                     if (frame.DesktopImage != null) {

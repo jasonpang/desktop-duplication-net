@@ -53,6 +53,6 @@ namespace DesktopDuplication
         /// </summary>
         public bool RectanglesCoalesced { get; internal set; }
 
-        public Bitmap CursorBitmap { get; internal set; }
+        public Icon CursorIcon { get; internal set; }
     }
 }
