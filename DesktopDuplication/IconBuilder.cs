@@ -222,6 +222,7 @@ namespace DesktopDuplication
                 iconEntry.Write(ms);
 
                 ms.Seek(iconEntry.ImageOffset, SeekOrigin.Begin);
+                BmpHeader.ImageSize = (uint) (Palette.Size + Image.Size);
                 BmpHeader.Write(ms);
                 Palette.Write(ms);
                 Image.Write(ms);

@@ -1,14 +1,14 @@
-﻿using System;
-using System.Drawing.Imaging;
-using SharpDX;
+﻿using SharpDX;
 using SharpDX.Direct3D11;
 using SharpDX.DXGI;
+using System;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
 using Device = SharpDX.Direct3D11.Device;
 using MapFlags = SharpDX.Direct3D11.MapFlags;
 using Rectangle = SharpDX.Rectangle;
-using System.Drawing;
-using System.IO;
-using System.Runtime.InteropServices;
 
 namespace DesktopDuplication
 {
@@ -255,8 +255,7 @@ namespace DesktopDuplication
             // Update position
             if (updatePosition)
             {
-                pointerInfo.Position = new SharpDX.Point(_frameInfo.PointerPosition.Position.X,
-                    _frameInfo.PointerPosition.Position.Y);
+                pointerInfo.Position = _frameInfo.PointerPosition.Position;
                 pointerInfo.WhoUpdatedPositionLast = _whichOutputDevice;
                 pointerInfo.LastTimeStamp = _frameInfo.LastMouseUpdateTime;
                 pointerInfo.Visible = _frameInfo.PointerPosition.Visible;
@@ -265,52 +264,10 @@ namespace DesktopDuplication
             // No new shape
             if (_frameInfo.PointerShapeBufferSize != 0)
             {
-                if (_frameInfo.PointerShapeBufferSize > pointerInfo.PtrShapeBuffer.Length)
-                {
-                    pointerInfo.PtrShapeBuffer = new byte[_frameInfo.PointerShapeBufferSize];
-                }
-
                 try
                 {
-                    unsafe
-                    {
-                        fixed (byte* ptrShapeBufferPtr = pointerInfo.PtrShapeBuffer)
-                        {
-                            _deskDupl.GetFramePointerShape(_frameInfo.PointerShapeBufferSize, (IntPtr) ptrShapeBufferPtr,
-                                out int bufferSize, out pointerInfo.ShapeInfo);
-
-                            // invert line order or Icon will be upside down
-                            var height = pointerInfo.ShapeInfo.Height;
-                            var imageArray = new byte[bufferSize];
-                            var sourcePtr = (IntPtr) ptrShapeBufferPtr;
-                            for (var y = height - 1; y >= 0; y--)
-                            {
-                                Marshal.Copy(sourcePtr, imageArray, y * pointerInfo.ShapeInfo.Pitch,
-                                    pointerInfo.ShapeInfo.Pitch);
-                                sourcePtr = IntPtr.Add(sourcePtr, pointerInfo.ShapeInfo.Pitch);
-                            }
-
-                            var iconBuilder = new IconBuilder
-                            {
-                                BmpHeader =
-                                {
-                                    Width = (uint) pointerInfo.ShapeInfo.Width,
-                                    Height = (uint) (pointerInfo.ShapeInfo.Type == 1 ? height / 2 : height),
-                                    BitCount = (ushort) (pointerInfo.ShapeInfo.Type == 1 ? 1 : 32),
-                                },
-                                Palette =
-                                {
-                                    Data = (pointerInfo.ShapeInfo.Type == 1 ? BitPalette : NoPalette)
-                                },
-                                Image =
-                                {
-                                    Data = imageArray
-                                }
-                            };
-
-                            frame.CursorIcon = iconBuilder.Build();
-                        }
-                    }
+                    frame.CursorIcon = ExtractIcon(pointerInfo);
+                    frame.CursorSize = new Size(pointerInfo.ShapeInfo.Width, pointerInfo.ShapeInfo.Height);
                 }
                 catch (SharpDXException ex)
                 {
@@ -323,6 +280,155 @@ namespace DesktopDuplication
 
             //frame.CursorVisible = pointerInfo.Visible;
             frame.CursorLocation = new System.Drawing.Point(pointerInfo.Position.X, pointerInfo.Position.Y);
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct POINT
+        {
+            public Int32 x;
+            public Int32 y;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct CURSORINFO
+        {
+            public Int32 cbSize;        // Specifies the size, in bytes, of the structure. 
+            public Int32 flags;         // Specifies the cursor state. This parameter can be one of the following values:
+            public IntPtr hCursor;          // Handle to the cursor. 
+            public POINT ptScreenPos;       // A POINT structure that receives the screen coordinates of the cursor. 
+        }
+
+        [DllImport("user32.dll", EntryPoint = "GetCursorInfo")]
+        public static extern bool GetCursorInfo(out CURSORINFO pci);
+
+        private unsafe Cursor ExtractIcon(PointerInfo pointerInfo)
+        {
+            if (_frameInfo.PointerShapeBufferSize > pointerInfo.PtrShapeBuffer.Length)
+            {
+                pointerInfo.PtrShapeBuffer = new byte[_frameInfo.PointerShapeBufferSize];
+            }
+
+            //int bufferSize;
+            fixed (byte* ptrShapeBufferPtr = pointerInfo.PtrShapeBuffer)
+            {
+                _deskDupl.GetFramePointerShape(_frameInfo.PointerShapeBufferSize, (IntPtr)ptrShapeBufferPtr,
+                    out int bufferSize, out pointerInfo.ShapeInfo);
+            }
+
+ 
+            var ci = new CURSORINFO();
+            ci.cbSize = Marshal.SizeOf(ci);
+            if (GetCursorInfo(out ci))
+            {
+                return new Cursor(ci.hCursor);
+            }
+            return null;
+            /*
+            var width = pointerInfo.ShapeInfo.Width;
+            var height = pointerInfo.ShapeInfo.Height;
+
+
+            var inputArray = pointerInfo.PtrShapeBuffer;
+            var linePitch = pointerInfo.ShapeInfo.Pitch;
+
+            //var maskPitch = (width + 7) >> 3;
+            var imageSize = bufferSize; // pointerInfo.ShapeInfo.Type == 4 ? maskPitch * height * 2 : bufferSize;}}
+
+            var imageArray = new byte[imageSize];
+            //if (pointerInfo.ShapeInfo.Type != 4)
+            {
+                // invert line order or Icon will be upside down
+                for (var y = 0; y < height; y++)
+                {
+                    Array.Copy(inputArray, y * linePitch, imageArray, (height - y - 1) * linePitch,
+                        linePitch);
+                }
+            }
+            /*else
+            {
+                // convert color mask to bitmask
+                for (var y = 0; y < height; y++)
+                {
+                    for (var x = 0; x < width;)
+                    {
+                        byte andMask = 0;
+                        byte xorMask = 0;
+                        for (var bit = 0; bit < 8 && x < width; x++, bit++)
+                        {
+                            var offset = (height - y - 1) * linePitch + x * 4;
+                            if (inputArray[offset + 0] != 0 || inputArray[offset + 1] != 0 ||
+                                inputArray[offset + 2] != 0)
+                                xorMask |= (byte) (1 << bit);
+                            if (inputArray[offset + 3] != 0)
+                                andMask |= (byte) (1 << bit);
+                        }
+                        imageArray[y * maskPitch + ((x - 1) >> 3)] = xorMask;
+                        imageArray[imageSize / 2 + y * maskPitch + ((x - 1) >> 3)] = andMask;
+                    }
+                }
+            }* /
+
+
+            if (pointerInfo.ShapeInfo.Type == 1)
+            {
+                var iconBuilder = new IconBuilder
+                {
+                    BmpHeader =
+                    {
+                        Width = (uint) width,
+                        Height = (uint) height / 2,
+                        BitCount = (ushort) 1,
+                        ClrUsed = (byte) 2,
+                    },
+                    Palette =
+                    {
+                        Data = BitPalette
+                    },
+                    Image =
+                    {
+                        Data = imageArray
+                    }
+                };
+
+                return iconBuilder.Build();
+            }
+            else if (pointerInfo.ShapeInfo.Type == 2)
+            {
+                var iconBuilder = new IconBuilder
+                {
+                    BmpHeader =
+                    {
+                        Width = (uint) width,
+                        Height = (uint) height,
+                        BitCount = (ushort) 32,
+                    },
+                    Image =
+                    {
+                        Data = imageArray
+                    }
+                };
+
+                return iconBuilder.Build();
+            }
+            else //if (pointerInfo.ShapeInfo.Type == 4)
+            {
+                var iconBuilder = new IconBuilder
+                {
+                    BmpHeader =
+                    {
+                        Width = (uint) width,
+                        Height = (uint) height,
+                        BitCount = (ushort) 24,
+                        ClrUsed = (byte) 2,
+                    },
+                    Image =
+                    {
+                        Data = imageArray
+                    }
+                };
+
+                return iconBuilder.Build().;
+            }*/
         }
 
         private void ProcessFrame(DesktopFrame frame)

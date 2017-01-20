@@ -1,4 +1,5 @@
 ﻿using System.Drawing;
+using System.Windows.Forms;
 
 namespace DesktopDuplication
 {
@@ -38,6 +39,8 @@ namespace DesktopDuplication
         /// </summary>
         public Point CursorLocation { get; internal set; }
 
+        public Size CursorSize { get; internal set; }
+
         /// <summary>
         /// Gets whether the cursor on the last retrieved desktop image was visible.
         /// </summary>
@@ -53,6 +56,6 @@ namespace DesktopDuplication
         /// </summary>
         public bool RectanglesCoalesced { get; internal set; }
 
-        public Icon CursorIcon { get; internal set; }
+        public Cursor CursorIcon { get; internal set; }
     }
 }

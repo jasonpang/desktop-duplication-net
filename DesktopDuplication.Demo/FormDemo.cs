@@ -8,8 +8,9 @@ namespace DesktopDuplication.Demo
     {
         private Bitmap _screen;
         private DesktopDuplicator _desktopDuplicator;
-        private Icon _cursorIcon;
+        private Cursor _cursorIcon;
         private Point _cursorLocation;
+        private Size _cursorSize;
 
         public FormDemo()
         {
@@ -31,12 +32,14 @@ namespace DesktopDuplication.Demo
         {
             if (_screen != null)
             {
-                e.Graphics.DrawImage(_screen, e.ClipRectangle, e.ClipRectangle, GraphicsUnit.Pixel);
-                //e.Graphics.DrawImageUnscaledAndClipped(screen, ClientRectangle);
+                //e.Graphics.DrawImage(_screen, e.ClipRectangle, e.ClipRectangle, GraphicsUnit.Pixel);
+                e.Graphics.DrawImageUnscaledAndClipped(_screen, e.ClipRectangle);
             }
             if (_cursorIcon != null)
             {
-                e.Graphics.DrawIcon(_cursorIcon, _cursorLocation.X, _cursorLocation.Y);
+                //e.Graphics.DrawIconUnstretched(_cursorIcon, new Rectangle(_cursorLocation, _cursorIcon.Size));
+                _cursorIcon.DrawStretched(e.Graphics, new Rectangle(_cursorLocation, _cursorSize));
+                //_cursorIcon.DrawStretched(e.Graphics, new Rectangle(_cursorLocation, _cursorIcon.Size));
             }
         }
 
@@ -45,7 +48,9 @@ namespace DesktopDuplication.Demo
             while (Visible)
             {
                 Application.DoEvents();
-                FormBorderStyle = WindowState == FormWindowState.Maximized ? FormBorderStyle.None : FormBorderStyle.Sizable;
+                FormBorderStyle = WindowState == FormWindowState.Maximized
+                    ? FormBorderStyle.None
+                    : FormBorderStyle.Sizable;
 
                 DesktopFrame frame;
                 try
@@ -61,20 +66,28 @@ namespace DesktopDuplication.Demo
                 if (frame != null)
                 {
                     var update = new Region();
+                    if ((frame.CursorIcon != null || frame.CursorLocation != new Point())
+                        && (_cursorLocation != new Point() && _cursorSize != new Size()))
+                    {
+                        update.Union(new Rectangle(_cursorLocation, _cursorSize));
+                    }
                     if (frame.CursorIcon != null)
                     {
                         _cursorIcon?.Dispose();
                         _cursorIcon = frame.CursorIcon;
-                        update.Union(new Rectangle(_cursorLocation, _cursorIcon.Size));
+                        _cursorSize = frame.CursorSize;
                     }
                     if (frame.CursorLocation != new Point() && _cursorIcon != null)
                     {
-                        update.Union(new Rectangle(_cursorLocation, _cursorIcon.Size));
                         _cursorLocation = frame.CursorLocation;
-                        update.Union(new Rectangle(_cursorLocation, _cursorIcon.Size));
                     }
-
-                    if (frame.DesktopImage != null) {
+                    if ((frame.CursorIcon != null || frame.CursorLocation != new Point())
+                        && (_cursorLocation != new Point() && _cursorSize != new Size()))
+                    {
+                        update.Union(new Rectangle(_cursorLocation, _cursorSize));
+                    }
+                    if (frame.DesktopImage != null)
+                    {
                         _screen?.Dispose();
                         _screen = frame.DesktopImage;
                         //update.Union(ClientRectangle);
