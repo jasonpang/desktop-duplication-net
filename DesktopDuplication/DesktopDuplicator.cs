@@ -267,7 +267,7 @@ namespace DesktopDuplication
                 try
                 {
                     frame.CursorIcon = ExtractIcon(pointerInfo);
-                    frame.CursorSize = new Size(pointerInfo.ShapeInfo.Width, pointerInfo.ShapeInfo.Height);
+                    frame.CursorSize = new Size(pointerInfo.ShapeInfo.Width, pointerInfo.ShapeInfo.Type == 1 ? pointerInfo.ShapeInfo.Height / 2 : pointerInfo.ShapeInfo.Height);
                 }
                 catch (SharpDXException ex)
                 {
